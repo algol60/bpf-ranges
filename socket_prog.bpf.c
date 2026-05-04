@@ -5,6 +5,8 @@ All ports in the 8000-8999 range are blocked. This stops most default
 HTTP ports (jupyter-lab, python -m http.server, etc).
 
 Each uid then gets 10 ports starting at 9000.
+
+TODO only block ports on local addresses.
 */
 
 // enum sock_type {
@@ -94,9 +96,12 @@ print fmt: "fd: 0x%08lx, umyaddr: 0x%08lx, addrlen: 0x%08lx", ((unsigned long)(R
 //     uint64_t addrlen;
 // };
 
-#define MIN_PORT 8000
-#define BASE_PORT 9000
-#define MAX_PORT 10000
+const int MIN_PORT = 8000;
+const int BASE_PORT = 9000;
+const int MAX_PORT = 10000;
+const int RANGE = 10;
+
+static int uids[] = {1000, 1001, 1002};
 
 static int is_allowed(uint32_t uid, uint16_t port) {
 
@@ -107,13 +112,17 @@ static int is_allowed(uint32_t uid, uint16_t port) {
     }
 
     // Each user gets their own range.
+    // Loop through the uids array.
+    // When the matching uid is found, check the range.
     //
-    if (
-           ((uid==1000) && (BASE_PORT+  0<=port) && (port<BASE_PORT+ 10))
-        || ((uid==1001) && (BASE_PORT+ 10<=port) && (port<BASE_PORT+ 20))
-        || ((uid==1002) && (BASE_PORT+ 20<=port) && (port<BASE_PORT+ 30))
-    ) {
-        return 0;
+    int base = BASE_PORT;
+    for (int i=0; i<sizeof(uids)/sizeof(int); i++) {
+        const int u = uids[i];
+        if (u==uid) {
+            return (base<=port) && (port<base+RANGE) ? 0 : -EPERM;
+        }
+
+        base += RANGE;
     }
 
     return -EPERM;
