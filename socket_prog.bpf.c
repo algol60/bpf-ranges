@@ -64,6 +64,21 @@ char LICENSE[] SEC("license") = "Dual BSD/GPL";
 static const uint32_t LOCALHOST4 = 0x7f000001;
 static const uint8_t LOCALHOST6[] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 };
 
+#if __has_include("local_if.h")
+    // Include output from local_info.
+    //
+    #include "local_if.h"
+#else
+    int addresses4[] = {
+    // Interface: lo
+    0x7f000001, // 127.0.0.1
+    };
+    uint8_t addresses6[][16] = {
+    // Interface: lo
+    { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, },
+    };
+#endif
+
 /*
 # bpftrace -lv tracepoint:syscalls:sys_enter_bind
 tracepoint:syscalls:sys_enter_bind
@@ -144,12 +159,6 @@ static int restrict_sock(struct socket *sock, struct sockaddr *address, int addr
 
     bpf_printk("RESTRICT %s family=%d\n", which, address->sa_family);
 
-    // Only IPv4 allowed.
-    // Disable IPv6, or test for it here.
-    //
-    // if (address->sa_family == AF_INET6) {
-    //     return 0;//-EPERM;
-    // }
     if (address->sa_family == AF_INET) {
         // Which address and port?
         //
