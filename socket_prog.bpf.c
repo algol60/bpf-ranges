@@ -1,5 +1,10 @@
 /*
-Limit socket bind and socket connect ta range per-person.
+Limit socket bind and socket connect to range per-person.
+
+All ports in the 8000-8999 range are blocked. This stops most default
+HTTP ports (jupyter-lab, python -m http.server, etc).
+
+Each uid then gets 10 ports starting at 9000.
 */
 
 // enum sock_type {
@@ -12,9 +17,13 @@ Limit socket bind and socket connect ta range per-person.
 // 	SOCK_PACKET = 10,
 // };
 
+#include <stdint.h>     // Standard integer definitions (e.g., uint64_t)
+
+// Copy enough of struct socket from vmlinux.h to get the type.
+//
 struct socket {
-	int state;
-	short int type;
+	int32_t state;
+	int16_t type;
 	// long unsigned int flags;
 	// struct file *file;
 	// struct sock *sk;
@@ -30,7 +39,6 @@ struct socket {
 // #define EPERM 1
 // #define AF_INET 2
 
-#include <stdint.h>          // Standard integer definitions (e.g., uint64_t)
 #include <string.h>
 #include <errno.h>
 
@@ -40,7 +48,6 @@ struct socket {
 #include <bpf/bpf_helpers.h> // Helper functions provided by eBPF (e.g., bpf_get_current_pid_tgid)
 #include <bpf/bpf_endian.h>
 #include <bpf/bpf_tracing.h> // For working with tracepoints
-#include <linux/limits.h>    // For PATH_MAX (maximum file path length)
 
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -51,9 +58,9 @@ struct socket {
 // "Dual BSD/GPL" ensures compatibility with all helper functions
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
-#define LOCALHOST 0x7f000001
-static const uint8_t localhost_bytes[] =
-        { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 };
+// #define LOCALHOST 0x7f000001
+static const uint32_t LOCALHOST4 = 0x7f000001;
+static const uint8_t LOCALHOST6[] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 };
 
 /*
 # bpftrace -lv tracepoint:syscalls:sys_enter_bind
@@ -87,10 +94,24 @@ print fmt: "fd: 0x%08lx, umyaddr: 0x%08lx, addrlen: 0x%08lx", ((unsigned long)(R
 //     uint64_t addrlen;
 // };
 
+#define MIN_PORT 8000
+#define BASE_PORT 9000
+#define MAX_PORT 10000
+
 static int is_allowed(uint32_t uid, uint16_t port) {
-    if ((port<=1023)
-        || ((uid==1000) && (10000<=port) && (port<10010))
-        || ((uid==1001) && (10010<=port) && (port<10019))
+
+    // Ports outside our range are unaffected.
+    //
+    if ((port<MIN_PORT) || (port>=MAX_PORT)) {
+        return 0;
+    }
+
+    // Each user gets their own range.
+    //
+    if (
+           ((uid==1000) && (BASE_PORT+  0<=port) && (port<BASE_PORT+ 10))
+        || ((uid==1001) && (BASE_PORT+ 10<=port) && (port<BASE_PORT+ 20))
+        || ((uid==1002) && (BASE_PORT+ 20<=port) && (port<BASE_PORT+ 30))
     ) {
         return 0;
     }
@@ -133,7 +154,7 @@ static int restrict_sock(struct socket *sock, struct sockaddr *address, int addr
         short int stype = sock->type;
         bpf_printk("RESTRICT %s family=%d uid=%u addr=%u port=%u type=%u\n", which, address->sa_family, uid, addr4, port, stype);
 
-        if (addr4!=LOCALHOST) {
+        if (addr4!=LOCALHOST4) {
             return -EPERM;
         }
 
@@ -147,7 +168,7 @@ static int restrict_sock(struct socket *sock, struct sockaddr *address, int addr
         short int stype = sock->type;
         bpf_printk("RESTRICT %s family=%d uid=%u addr=%pI6c port=%u type=%u\n", which, address->sa_family, uid, &dst_addr, port, stype);
 
-        int is_localhost = memcmp(dst_addr.s6_addr, localhost_bytes, sizeof(dst_addr)) == 0;
+        int is_localhost = memcmp(dst_addr.s6_addr, LOCALHOST6, sizeof(dst_addr)) == 0;
         if (!is_localhost) {
             return -EPERM;
         }
@@ -194,68 +215,3 @@ SEC("lsm/socket_connect")
 int BPF_PROG(restrict_connect, struct socket *sock, struct sockaddr *address, int addrlen, int ret) {
     return restrict_sock(sock, address, addrlen, ret, "CONNECT");
 }
-
-// // Define a ring buffer map to transfer events from kernel space to user space
-// // This map will live in the ".maps" ELF section and is required for event streaming
-// struct {
-//     __uint(type, BPF_MAP_TYPE_RINGBUF); // Specify that this is a ring buffer map
-//     __uint(max_entries, 32768);         // Maximum size (in bytes) of the buffer
-// } exec_ringbuf SEC(".maps");            // SEC macro tells the loader this is a BPF map
-
-// // Define the structure of the event we will send to user space
-// // This includes metadata (pid, uid, timestamp) and the executed filename
-// struct event_t {
-//     int pid;                          // Process ID
-//     int uid;                          // User ID
-//     long int timestamp;               // Timestamp in nanoseconds
-//     char filename[PATH_MAX];          // Executed filename (full path)
-// };
-
-// // This struct matches the tracepoint argument format for sys_enter_execve
-// // To find the exact layout of any syscall tracepoint, inspect:
-// // /sys/kernel/debug/tracing/events/syscalls/sys_enter_execve/format
-// struct sys_enter_execve_args {
-//     char _[16];         // Padding for internal tracepoint fields (not used)
-//     uint64_t filename_ptr; // Pointer to the filename string
-//     uint64_t argv;         // Pointer to argv
-//     uint64_t envp;         // Pointer to envp
-// };
-
-// // Define the eBPF program that will run on the tracepoint "sys_enter_execve"
-// // This tracepoint is triggered whenever a process calls execve()
-// SEC("tracepoint/syscalls/sys_enter_execve")
-// int trace_execve(struct sys_enter_execve_args *ctx)
-// {
-//     struct event_t *event;
-
-//     // Reserve space in the ring buffer for our event
-//     // If the reservation fails (e.g., buffer is full), exit early
-//     event = bpf_ringbuf_reserve(&exec_ringbuf, sizeof(*event), 0);
-//     if (!event) {
-//         return 0;
-//     }
-
-//     // Capture metadata: current process ID, user ID, and timestamp
-//     event->pid = bpf_get_current_pid_tgid() >> 32; // Upper 32 bits = PID
-//     event->uid = bpf_get_current_uid_gid() >> 32;  // Upper 32 bits = UID
-//     event->timestamp = bpf_ktime_get_ns();         // Nanosecond-resolution timestamp
-
-//     // Read the filename pointer from tracepoint arguments
-//     char *filename_ptr = (char *)ctx->filename_ptr;
-
-//     // Safely copy the filename string from user space into our event struct
-//     // If the read fails (e.g., invalid pointer), discard the event and return
-//     if (bpf_probe_read_user_str(event->filename, PATH_MAX, filename_ptr) < 0) {
-//         bpf_ringbuf_discard(event, 0); // Release reserved space in the ringbuf
-//         return -1;
-//     }
-
-//     // Print to kernel debug trace buffer for quick testing/logging
-//     // You can view this with: sudo cat /sys/kernel/debug/tracing/trace_pipe
-//     bpf_printk("%d %d %s\n", event->pid, event->uid, event->filename);
-
-//     // Submit the event to the ring buffer so it can be consumed in user space
-//     bpf_ringbuf_submit(event, 0);
-
-//     return 0;
-// }
