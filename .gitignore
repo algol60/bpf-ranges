@@ -1,2 +1,2 @@
-vmlinux.h
-*.o
+**/vmlinux.h
+**/*.o

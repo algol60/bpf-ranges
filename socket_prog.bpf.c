@@ -124,6 +124,8 @@ static int is_allowed(uint32_t uid, uint16_t port) {
     //
     if ((port<MIN_PORT) || (port>=MAX_PORT)) {
         return 0;
+    } else if(port<BASE_PORT) {
+        return -EPERM;
     }
 
     // Each user gets their own range.
@@ -170,8 +172,9 @@ static int restrict_sock(struct socket *sock, struct sockaddr *address, int addr
         // View this with: sudo cat /sys/kernel/debug/tracing/trace_pipe.
         //
         short int stype = sock->type;
-        bpf_printk("RESTRICT %s family=%d uid=%u addr=%u port=%u type=%u\n", which, address->sa_family, uid, addr4, port, stype);
+        bpf_printk("RESTRICT4 %s family=%d uid=%u addr=0c%08x port=%u type=%u\n", which, address->sa_family, uid, addr4, port, stype);
 
+        // TODO only block local addresses.
         if (addr4!=LOCALHOST4) {
             return -EPERM;
         }
@@ -184,8 +187,9 @@ static int restrict_sock(struct socket *sock, struct sockaddr *address, int addr
         bpf_probe_read_kernel(&dst_addr, sizeof(dst_addr), &sin6->sin6_addr);
 
         short int stype = sock->type;
-        bpf_printk("RESTRICT %s family=%d uid=%u addr=%pI6c port=%u type=%u\n", which, address->sa_family, uid, &dst_addr, port, stype);
+        bpf_printk("RESTRICT6 %s family=%d uid=%u addr=%pI6c port=%u type=%u\n", which, address->sa_family, uid, &dst_addr, port, stype);
 
+        // TODO only block local addresses.
         int is_localhost = memcmp(dst_addr.s6_addr, LOCALHOST6, sizeof(dst_addr)) == 0;
         if (!is_localhost) {
             return -EPERM;
