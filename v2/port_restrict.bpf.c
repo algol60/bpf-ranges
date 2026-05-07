@@ -99,3 +99,34 @@ int bind6_prog(struct bpf_sock_addr *ctx) {
 
     return is_port_allowed(uid, port);
 }
+
+/*
+Restrict connect() calls to localhost.
+*/
+SEC("cgroup/connect4")
+int connect4_prog(struct bpf_sock_addr *ctx) {
+    // Check for all 127.0.0.0/8 addresses.
+    //
+    __u32 dst_ip = bpf_ntohl(ctx->user_ip4);
+    if ((dst_ip & 0xFF000000) == 0x7F000000) {
+        __u32 uid = bpf_get_current_uid_gid() & 0xFFFFFFFF;
+        __u16 port = bpf_ntohs(ctx->user_port);
+        return is_port_allowed(uid, port);
+    }
+
+    return ALLOW;
+}
+
+SEC("cgroup/connect6")
+int connect6_prog(struct bpf_sock_addr *ctx) {
+    // Check for all ::1 addresses.
+    //
+    __u32 *ip6 = ctx->user_ip6;
+    if ((ip6[0] == 0) && (ip6[1] == 0) && (ip6[2] == 0) && (ip6[3] == bpf_htonl(1))) {
+        __u32 uid = bpf_get_current_uid_gid() & 0xFFFFFFFF;
+        __u16 port = bpf_ntohs(ctx->user_port);
+        return is_port_allowed(uid, port);
+    }
+
+    return ALLOW;
+}

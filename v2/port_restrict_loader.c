@@ -31,7 +31,7 @@ struct user_config {
 };
 
 static struct user_config users[] = {
-    {"frogger", 9000, 9009},
+    {"dev98", 9000, 9009},
     {"dev99", 9010, 9019},
 };
 
@@ -64,6 +64,40 @@ static int populate_user_map(int map_fd) {
 }
 
 static int attach_progs(const struct bpf_object *obj, const int cgroup_fd) {
+    struct bpf_program *prog;
+    bpf_object__for_each_program(prog, obj) {
+        const char *prog_name = bpf_program__name(prog);
+        const int prog_fd = bpf_program__fd(prog);
+        if (prog_fd < 0) {
+            fprintf(stderr, "Failed to get fd for %s\n", prog_name);
+            return -1;
+        }
+
+        enum bpf_attach_type attach_type;
+        if (strcmp(prog_name, "bind4_prog") == 0) {
+            attach_type = BPF_CGROUP_INET4_BIND;
+        } else if (strcmp(prog_name, "bind6_prog") == 0) {
+            attach_type = BPF_CGROUP_INET6_BIND;
+        } else if (strcmp(prog_name, "connect4_prog") == 0) {
+            attach_type = BPF_CGROUP_INET4_CONNECT;
+        } else if (strcmp(prog_name, "connect6_prog") == 0) {
+            attach_type = BPF_CGROUP_INET6_CONNECT;
+        } else {
+            fprintf(stderr, "Program %s not found\n", prog_name);
+            // TODO make this a return.
+            continue;
+        }
+
+        // TODO Use bpf_program__attach()?
+        if (bpf_prog_attach(prog_fd, cgroup_fd, attach_type, 0) != 0) {
+            fprintf(stderr, "Failed to attach %s: %s\n", prog_name, strerror(errno));
+
+            return -1;
+        }
+
+        printf("  * Attached program %s (type %d)\n", prog_name, attach_type);
+    }
+
     return 0;
 }
 
@@ -114,7 +148,17 @@ int main(int argc, char**argv) {
     }
 
     printf("* attach\n");
+    if (attach_progs(obj, cgroup_fd) != 0) {
+        close(cgroup_fd);
+        err = -1;
+        goto cleanup;
+    }
 
+    printf("* Ports are now restricted.\n");
+
+    while (1) {
+        sleep(86400);
+    }
 
 cleanup:
     bpf_object__close(obj);
