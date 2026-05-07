@@ -43,7 +43,7 @@ const int ALLOW = 1;
 const int DENY = 0;
 
 /*
-Is this uid allowed to use this port.
+Is this uid allowed to use this port?
 Returns 0 if yes, _EPERM if no.
 */
 static __always_inline int is_port_allowed(const __u32 uid, const __u16 port) {
@@ -54,7 +54,6 @@ static __always_inline int is_port_allowed(const __u32 uid, const __u16 port) {
     if ((port>=BAN_MIN_PORT) && (port<BAN_MAX_PORT)) {
         return DENY;
     }
-
 
     if ((port < BAN_MIN_PORT) || (port >= BAN_PORT_LIMIT)) {
         return ALLOW;
@@ -81,6 +80,11 @@ int bind4_prog(struct bpf_sock_addr *ctx) {
         return ALLOW;
     }
 
+    __u32 dst_ip = bpf_ntohl(ctx->user_ip4);
+    if (dst_ip == 0) {
+        return DENY;
+    }
+
     __u32 uid = bpf_get_current_uid_gid() & 0xFFFFFFFF;
 
     return is_port_allowed(uid, port);
@@ -93,6 +97,11 @@ int bind6_prog(struct bpf_sock_addr *ctx) {
     if (port == 0) {
         // Kernel-assigned port.
         return ALLOW;
+    }
+
+    __u32 *ip6 = ctx->user_ip6;
+    if ((ip6[0] == 0) && (ip6[1] == 0) && (ip6[2] == 0) && (ip6[3] == 0)) {
+        return DENY;
     }
 
     __u32 uid = bpf_get_current_uid_gid() & 0xFFFFFFFF;
