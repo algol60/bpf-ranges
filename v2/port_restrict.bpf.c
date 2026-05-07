@@ -61,7 +61,7 @@ static __always_inline int is_port_allowed(const __u32 uid, const __u16 port) {
 
     struct port_range *range = bpf_map_lookup_elem(&user_port_map, &uid);
     if (range) {
-        return ((range->min_port <= port) && (port <range->max_port)) ? ALLOW : DENY;
+        return ((range->min_port <= port) && (port < range->max_port)) ? ALLOW : DENY;
     }
 
     // uid not found.

@@ -155,12 +155,19 @@ static int attach_progs(const struct bpf_object *obj, const int cgroup_fd) {
             continue;
         }
 
-        // TODO Use bpf_program__attach()?
+        // TODO Use bpf_program__attach()? bpf_program__pin?
         if (bpf_prog_attach(prog_fd, cgroup_fd, attach_type, 0) != 0) {
             fprintf(stderr, "Failed to attach %s: %s\n", prog_name, strerror(errno));
 
             return -1;
         }
+
+        // char path[100];
+        // sprintf(path, "/sys/fs/bpf/port_restrict/%s", prog_name);
+        // int e = bpf_program__pin(prog, path);
+        // if (e) {
+        //     printf("pin %d %s\n", e, strerror(errno));
+        // }
 
         printf("  * Attached program %s (type %d)\n", prog_name, attach_type);
     }
@@ -238,9 +245,9 @@ int main(int argc, char**argv) {
 
     printf("* Ports are now restricted.\n");
 
-    while (1) {
-        sleep(86400);
-    }
+    // while (1) {
+    //     sleep(86400);
+    // }
 
 cleanup:
     bpf_object__close(obj);
