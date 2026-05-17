@@ -4,23 +4,22 @@ Port restrictor is an eBPF program that allows users to share a Linux system
 and use TCP servers (such as `panel serve` and `python -m http.server`)
 without other users being able to connect to those servers.
 
-The ports between 8000 (inclusive) and 9000 (exclusive) are banned. Since
+The ports between 8000 and 8999 (inclusive) are banned. Since
 HTTP applications (such as jupyter-lab) typically open default ports in
 this range, users must explicitly select a different port.
 
-Ranges of ports between 9000 (inclusive) and 10000 (exclusive) may be allocated
+Ranges of ports between 9000 and 9999 (inclusive) may be allocated
 to users by specifying a text file containing lines in the format
 `username,min_port,max_port`.
 
 ```
-user1,9000,9010
-user2,9010,9020
+user1,9000,9009
+user2,9010,9019
 ```
 
 This file allocates ports 9000 to 9009 to user1, and ports 9010 to 9019 to user2.
-(Port ranges are half-open to match Python's range(start, stop).)
 
-Within the range `9000,9010`, user1 can bind to a port with a server and
+Within the range `9000,9009`, user1 can bind to a port with a server and
 connect to that port with a client. Any attempt to bind or connect to
 any other port in the range `8000,10000` will be denied. For example:
 
@@ -37,8 +36,6 @@ This section requires root access.
 The restrictor is an object file containing several BPF programs. The object file is loaded
 by the `port_restrict_loader` executable. The `port_restrict.o` file must be
 in the current directory.
-
-`TODO make the .o a parameter`
 
 The loader takes one parameter: the path to a configuration file as described above.
 

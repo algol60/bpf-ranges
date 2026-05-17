@@ -33,7 +33,7 @@ struct {
 // 8xxx tends to be where http servers default to.
 //
 const int BAN_MIN_PORT = 8000;
-const int BAN_MAX_PORT = 9000;
+const int BAN_MAX_PORT = 8999;
 
 // No restrictions >= port 10000.
 //
@@ -51,17 +51,17 @@ static __always_inline int is_port_allowed(const __u32 uid, const __u16 port) {
     // PORTS in the BAN range are banned.
     // Ports outside our total range are unaffected.
     //
-    if ((port>=BAN_MIN_PORT) && (port<BAN_MAX_PORT)) {
+    if ((port>=BAN_MIN_PORT) && (port<=BAN_MAX_PORT)) {
         return DENY;
     }
 
-    if ((port < BAN_MIN_PORT) || (port >= BAN_PORT_LIMIT)) {
+    if ((port < BAN_MIN_PORT) || (port > BAN_PORT_LIMIT)) {
         return ALLOW;
     }
 
     struct port_range *range = bpf_map_lookup_elem(&user_port_map, &uid);
     if (range) {
-        return ((range->min_port <= port) && (port < range->max_port)) ? ALLOW : DENY;
+        return ((port >= range->min_port) && (port <= range->max_port)) ? ALLOW : DENY;
     }
 
     // uid not found.

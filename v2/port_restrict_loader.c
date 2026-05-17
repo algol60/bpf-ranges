@@ -25,16 +25,10 @@ struct port_range {
 };
 
 struct user_config {
-    // const char *username;
     __u32 uid;
     __u16 min_port;
     __u16 max_port;
 };
-
-// static struct user_config users[] = {
-//     {"dev98", 9000, 9009},
-//     {"dev99", 9010, 9019},
-// };
 
 // Big enough for our purposes.
 //
@@ -48,6 +42,7 @@ static int read_file(char *fnam) {
     }
 
     char buf[1024];
+    unsigned long prev_max_port = 1;
     int ix = 1;
     while (fgets(buf, sizeof(buf), fp)) {
         // Remove trailing newline character.
@@ -60,8 +55,14 @@ static int read_file(char *fnam) {
         token = strtok(NULL, ",");
         unsigned long max_port = strtoul(token, NULL, 0);
 
-        if ((min_port < 1024) || (max_port < 1024) || (min_port > 65535) || (max_port > 65535)) {
+        if ((min_port < 1024) || (max_port < 1024) || (min_port > 65535) || (max_port > 65535) || (min_port>max_port)) {
             fprintf(stderr, "Bad port at line %d\n", ix+1);
+
+            return -1;
+        }
+
+        if (min_port<prev_max_port) {
+            fprintf(stderr, "Overlapping port range at line %d\n", ix+1);
 
             return -1;
         }
@@ -77,8 +78,9 @@ static int read_file(char *fnam) {
             .min_port = min_port,
             .max_port = max_port
         };
-        printf("User %-8s (uid %5u) | %5lu | %5lu\n", username, pw->pw_uid, min_port, max_port);
+        printf("%3d User %-8s (uid %5u) | %5lu | %5lu\n", ix+1, username, pw->pw_uid, min_port, max_port);
 
+        prev_max_port = max_port;
         ix++;
     }
 
@@ -177,6 +179,12 @@ static int attach_progs(const struct bpf_object *obj, const int cgroup_fd) {
 
 int main(int argc, char**argv) {
 
+    if (geteuid() != 0) {
+        fprintf(stderr, "This program must be run as root.\n");
+
+        return 1;
+    }
+
     if (argc != 2) {
         fprintf(stderr, "Usage: %s <user,min_port,max_port file>", argv[0]);
         return 1;
@@ -184,12 +192,6 @@ int main(int argc, char**argv) {
 
     int num_users = read_file(argv[1]);
     if (num_users <= 0) {
-        return 1;
-    }
-
-    if (geteuid() != 0) {
-        fprintf(stderr, "This program must be run as root.\n");
-
         return 1;
     }
 
